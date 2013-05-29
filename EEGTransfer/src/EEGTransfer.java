@@ -1,5 +1,3 @@
-package cz.zcu.eeg.eegtransferdata;
-
 import java.sql.*;
 import java.io.*;
 import java.util.zip.*;
@@ -10,17 +8,15 @@ import java.util.zip.*;
 
 /**
  *
- * @author Roman Tryml
+ * @author rtryml
  */
-public class App {
-    // deklarace promenych pro pristupove udaje k databazi
+public class EEGTransfer {
+    // pristupove udaje k databazi
     static String url; //= "jdbc:oracle:thin:@students.kiv.zcu.cz:1521:EEGERP";
     static String username; // = "EEGTEST" ; 
     static String password; // = "JPERGLER" ; 
     public static void main(String[] args){
         String aktPath;
-        // parametr prikazove radky jako umisteni stahovanych dat 
-        // pokud je prazdny, bere se aktualni adresar 
         if(args.length == 0){
             File path = new File("");
             aktPath = aktPath = path.getAbsolutePath() + File.separator;
@@ -29,16 +25,13 @@ public class App {
             aktPath = args[0];
         }
         try{
-            // cteni pristupovych udaju k databazi z konfiguracniho souboru connectDB
             File path = new File("");
-            // Otevreni vstupniho proudu dat ze souboru
             BufferedReader br = new BufferedReader(new InputStreamReader(
                     new FileInputStream(path.getAbsolutePath()+ File.separator + "connectDB")));
             url = "jdbc:oracle:thin:@" + br.readLine() + ":" + br.readLine() + ":" +
                     br.readLine();
             username = br.readLine();
             password = br.readLine();
-            // zavreni vstupniho proudu dat po nacteni pristupovych udaju k databazi 
             br.close();
         }
         catch(IOException e){
@@ -51,13 +44,14 @@ public class App {
         catch(ClassNotFoundException e){
             System.out.println("Error initializing database driver.");
         }
+        // vytvoreni spojeni k databezi
         try{
-            // vytvoreni spojeni k databazi
             Connection conn = DriverManager.getConnection(url,username,password);
-            // spusteni metody pro stahovani souboru z databaze
-            transferFile(conn, aktPath);
-            // spusteni metody pro ziskani metadat
+            // transferFile(conn, aktPath);
+            // ziskani metadat
+            System.out.println("Create metadata.");
             createMetadata(conn, aktPath);
+            System.out.println("Done");
             System.out.println("Transfer successful.");
             // zavreni spojeni na databazi
             conn.close();
@@ -68,10 +62,8 @@ public class App {
     }
     
     // metoda pro presun souboru
-    // parametry jsou promenne tridy Connection (spojeni na DB) a
-    // tridy String (aktualni adresar, kam se budou stahovat soubory)
     static public void transferFile(Connection conn, String aktPath){
-        // zalozeni slozky experiment
+        
         aktPath = aktPath + File.separator + "experiments" + File.separator;
         
         try{
@@ -80,13 +72,11 @@ public class App {
             String sqlScenario = "select title,scenario_id from scenario";
             PreparedStatement stmtScenario = conn.prepareStatement(sqlScenario);
             ResultSet resultSetScenario = stmtScenario.executeQuery();
-            // cyklus prochazi scenare
             while(resultSetScenario.next()){
                 String sqlExperiment = "select experiment_id from experiment where scenario_id = " 
                         + resultSetScenario.getString(2);
                 PreparedStatement stmtExperiment = conn.prepareStatement(sqlExperiment);
                 ResultSet resultSetExperiment = stmtExperiment.executeQuery();
-                // cyklus prochazi prislusne experimenty k danemu scenari
                 while(resultSetExperiment.next()){
                     String sqlFile = "select filename, file_content from data_file where "
                             + "experiment_id = " + resultSetExperiment.getString(1);
@@ -106,14 +96,10 @@ public class App {
                         f.mkdirs();
                     }
                     try{
-                        // vytvoreni zip streamu
                         ZipOutputStream zos = new ZipOutputStream(new FileOutputStream
                             (part + "Data.zip"));
-                        // cyklus prochazi vsechny soubory prislusne k danemu experimentu
                         while(resultSetFile.next()){
-                            // pridani souboru do zipu archivu
                             ZipEntry entry = new ZipEntry(resultSetFile.getString(1));
-                            // pripojeni zip archivu do zip streamu 
                             zos.putNextEntry(entry);
                             byte[] buffer = new byte[1];
                             // pripojeni proudu binarnich dat z BLOB
@@ -124,16 +110,14 @@ public class App {
                             while (is.read(buffer) > 0 ){ 
                                 zos.write( buffer ); 
                             }
-                            // zavreni input streamu
                             is.close();
                         }
-                        // zavreni zip streamu
                         zos.close();
                     }
                     catch(IOException e){
                         System.out.println("Error the file transfer from database.");
                     }
-                    // zavreni resutSetu a statementu
+                    
                     resultSetFile.close();
                     stmtFile.close();
                 }
@@ -149,9 +133,6 @@ public class App {
         } 
     }
 
-    // metoda pro stahovani metadat
-    // parametry jsou promenne tridy Connection (spojeni na DB) a
-    // tridy String (aktualni adresar, ka se budou stahovat soubory)
     static public void createMetadata(Connection conn, String aktPath){
         try {
             aktPath = aktPath + File.separator + "experiments" + File.separator;
@@ -159,15 +140,11 @@ public class App {
             String pathTextAktExperiment;
             File pathFileAktExperiment;
             // ziskame data z experimentu
-            // upravou tohoto retezce lze nastavit, jake informace do metadatoveho 
-            // souboru pozadujeme
             String sql = "select experiment.*, scenario.title from experiment,"
                     + "scenario where experiment.scenario_id = scenario.scenario_id";
             PreparedStatement stmt;
             stmt = conn.prepareStatement(sql);
             ResultSet resultSet = stmt.executeQuery();
-            System.out.println("Create metadata.");
-            // cyklus prochazi jednotlive radky selectu
             while(resultSet.next()){ 
                 String part = resultSet.getString("TITLE") + 
                         File.separator + resultSet.getString("EXPERIMENT_ID") + File.separator;
@@ -179,15 +156,60 @@ public class App {
                 if (!pathFileAktExperiment.exists()){
                     pathFileAktExperiment.mkdirs();
                 }
-                // zapisuje jednotlive polozky do souboru a oddelute znakem '|'
                 fw = new FileWriter(pathTextAktExperiment + "metadata.csv");
-                for(int i = 1; i < resultSet.getMetaData().getColumnCount(); i++){
-                    fw.write(resultSet.getString(i) + "|\n");
+                // doplnit stazeni metadat experimentu
+                fw.write("\"Experiment detail\"\n");
+                fw.write("\"Beginning of Experiment\";" + 
+                        prazdnyRetezec(resultSet.getString("START_TIME")) + "\n");
+                fw.write("\"End of Experiment\";" + 
+                        prazdnyRetezec(resultSet.getString("END_TIME")) + "\n");
+                fw.write("\"Temperature[°C]\";" + 
+                        prazdnyRetezec(resultSet.getString("TEMPERATURE")) + "\n");
+                fw.write("\"Environment Note\";" + 
+                        prazdnyRetezec(resultSet.getString("ENVIRONMENT_NOTE")) + "\n");
+                fw.write("\"Tested subject\"\n");
+                // zjisteni testovane osoby
+                String sqlOsoba = "select gender, date_of_birth from person where "
+                        + "person_id = " + resultSet.getString("SUBJECT_PERSON_ID");
+                PreparedStatement stmtOsoba = conn.prepareStatement(sqlOsoba);
+                ResultSet resultSetOsoba = stmtOsoba.executeQuery();
+                resultSetOsoba.next();
+                fw.write("\"Gender\";" + 
+                        prazdnyRetezec(resultSetOsoba.getString(1)) + "\n");
+                fw.write("\"Date of Birth\";"
+                        + prazdnyRetezec(resultSetOsoba.getString(2)) + "\n");
+                resultSetOsoba.close();
+                stmtOsoba.close();
+                // zjisteni hardware
+                fw.write("\"Used hardware\"\n");
+                String sqlHardware = "select description from electrode_system "
+                        + "where electrode_system_id = (select electrode_system_id "
+                        + "from electrode_conf where electrode_conf_id = " 
+                        + resultSet.getString("ELECTRODE_CONF_ID") + ")";
+                PreparedStatement stmtHardware = conn.prepareStatement(sqlHardware);
+                ResultSet resultSetHardware = stmtHardware.executeQuery();
+                resultSetHardware.next();
+                fw.write("\"Description\";"
+                        + prazdnyRetezec(resultSetHardware.getString(1)) + "\n");
+                resultSetHardware.close();
+                stmtHardware.close();
+                // stazeni seznamu souboru a jejich popis
+                String sqlFile = "select filename, description from data_file where "
+                    + "experiment_id = " + resultSet.getString("EXPERIMENT_ID");
+                PreparedStatement stmtFile;
+                stmtFile = conn.prepareStatement(sqlFile);
+                ResultSet resultSetFile = stmtFile.executeQuery();
+                fw.write("\"File name\";\"Description\"\n");
+                while(resultSetFile.next()){
+                    fw.write(prazdnyRetezec(resultSetFile.getString(1)) + ";" + 
+                    prazdnyRetezec(resultSetFile.getString(2)) + "\n");
                 }
-                // zavreni otevreneho souboru
+                resultSetFile.close();
+                stmtFile.close();
                 fw.close();
             }
-            System.out.println("Done");
+            resultSet.close();
+            stmt.close();
         } 
         catch (SQLException e) {
             System.out.println("Create metadata - SQL Error");
@@ -196,5 +218,12 @@ public class App {
             System.out.println("Create metadata - File create error");
             System.exit(1);
         }
+    }
+    
+    static public String prazdnyRetezec(String retezec){
+        if(retezec == null){
+            return "";
+        }
+        return "\"" + retezec + "\"";
     }
 }
